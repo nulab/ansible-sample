@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# this should run first otherwise it may overwrite some variables unexpectedly
+eval $(perl -lne 'while(/\s?([^=\s]+)\s?=\s?(\"(?:\\\"|[^\"])+\"|\x27(?:\x27\\\x27\x27|[^\x27])+\x27|\S+)\s?/g){print "$1=$2"}' $1)
+
+###
+### Functions
+###
+is_exist()
+{
+    (type $1 > /dev/null 2>&1) && echo "yes"
+}
+
+setup_command()
+{
+    if [ "$(is_exist pbcopy)" == "yes" ]; then 
+        cmd="pbcopy"
+    elif [ "$(is_exist xsel)" == "yes" ]; then
+        cmd="xsel --input --clipboard"
+    elif [ "$(is_exist putclip)" == "yes" ]; then
+        cmd="putclip"
+    fi
+
+    if [ -z "${cmd}" ]; then
+        printf "failed=true msg='clipboard copy command not found'\n"
+        exit 1
+    fi    
+}
+
+###
+### Main
+###
+setup_command
+if [ -z "${message}" ]; then
+    printf "rc=0 changed=false msg='no message found'"
+    exit 0
+fi
+
+echo -n "${message}" | ${cmd}
+printf "rc=$? changed=true cmd=\'${cmd}\' message=\'$message\'\n"
