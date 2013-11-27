@@ -12,9 +12,9 @@ $ cd ansible-sample
 ```
 
 
-# Run modules
+# Run sample modules
 
-To run shell example on local hosts, run the following command.
+Running a bash module on local hosts is like this.
 ```
 $ ansible -m clipboard -i hosts local -a "message='hello ansible module'"
 ```
