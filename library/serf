@@ -1,0 +1,126 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+# $ANSIBLE_HOME/hacking/test-module -m ./library/serf -a "version=0.3.0 prefix=$HOME/bin"
+DOCUMENTATION = '''
+---
+module: serf
+short_description: install serf
+description:
+  - install serf
+options:
+  version:
+    description:
+      - serf version to install
+    required: true
+    default: null
+  prefix:
+    description:
+      - target path to install serf
+    required: false
+    default: /usr/local/bin
+  force:
+    description:
+      - when this is set to true, overwrite older version even if same version of serf has already been installed. In case of overwriting, the original file is backuped automatically.
+    required: false
+    default: false
+notes:
+   - see http://www.serfdom.io/downloads.html and https://dl.bintray.com/mitchellh/serf/
+author: Takashi Someda
+'''
+
+EXAMPLES='''
+- serf: version=0.3.0 prefix=/opt/local/bin
+  description: install serf 0.3.0 to /opt/local/bin
+'''
+
+import sys
+import tempfile
+import zipfile
+import shutil
+
+# supported platform http://www.serfdom.io/downloads.html
+platform_map = {
+    'Darwin' : 'mac',
+    'Linux' : 'linux',
+    'Windows' : 'windows',
+    'FreeBSD' : 'freebsd',
+    'OpenBSD' : 'openbsd'
+}
+
+def get_file_name(version):
+    is_64bits = sys.maxsize > 2**32
+    platform = get_platform()
+    arch = 'amd64' if is_64bits else '386'
+    name = platform_map.get(platform, None)
+    if name is None:
+        return None
+    return '%s_%s_%s.zip' % (version, name, arch)
+
+def main():
+
+    module = AnsibleModule(
+        argument_spec=dict(
+            version=dict(default=None, required=True),
+            prefix=dict(default='/usr/local/bin', required=False),
+            force=dict(default=False, required=False, type='bool'),
+        ),
+        supports_check_mode=True,
+    )
+
+    version = module.params['version']
+    prefix = module.params['prefix']
+    force = module.params['force']
+
+    check_mode = module.check_mode
+
+    # download archive
+    file_name = get_file_name(version)
+    if file_name is None:
+        module.fail_json(msg='%s is not supported' % get_platform())
+
+    download_url = 'https://dl.bintray.com/mitchellh/serf/%s' % file_name
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        wget_path = module.get_bin_path('wget', required=True)
+        module.run_command('%s -P %s %s' % (wget_path, temp_dir, download_url), check_rc=True)
+
+        # extract serf from the archive
+        with zipfile.ZipFile(os.path.join(temp_dir, file_name),'r') as archive:
+            for f in archive.namelist():
+                archive.extract(f, temp_dir)
+
+        serf_bin = os.path.join(temp_dir, 'serf')
+        if not os.path.exists(serf_bin):
+            module.fail_json(msg='%s is not serf archive' % os.path.join(temp_dir, file_name))
+
+        # install serf to your desired location
+        changed=False
+        target_bin = os.path.join(prefix, 'serf')
+
+        def do_copy():
+            module.atomic_move(serf_bin, target_bin)
+            module.set_mode_if_different(target_bin, 0755, changed)
+
+        if os.path.exists(target_bin):
+            if module.md5(serf_bin) != module.md5(target_bin):
+                if not check_mode:
+                    do_copy()
+                changed = True
+            else:
+                if force and not check_mode:
+                    module.backup_local(target_bin)
+                    do_copy() 
+                changed = force                
+        else:
+            if not check_mode:
+                do_copy()
+            changed=True
+
+        module.exit_json(changed=changed, check_mode=check_mode, download_url = download_url, target_bin = target_bin)
+    finally:
+        shutil.rmtree(temp_dir)
+
+from ansible.module_utils.basic import *
+
+main()    
